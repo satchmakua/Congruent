@@ -2,7 +2,7 @@
 
 Running log of where the build is and what's next. Keep this honest — it's the working memory between build sessions.
 
-**Current phase:** M0–M4 complete ✅ (symbolic core, loops, preconditions, arrays, sound `xs[i]`/divide-by-zero, benchmarks/gallery, early-exit `return` in loops) — **next: M5** (counterexample minimization), then `break`/`continue`. See [ROADMAP.md](ROADMAP.md).
+**Current phase:** M0–M5 complete ✅ (symbolic core, loops, preconditions, arrays, sound `xs[i]`/divide-by-zero, benchmarks/gallery, early-exit `return`, counterexample minimization) — **next: M6** (list outputs), then `break`/`continue`. See [ROADMAP.md](ROADMAP.md).
 
 ## State of the tree
 
@@ -24,8 +24,9 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Fixtures (eval set) | `tests/fixtures/` | ✅ 11 pairs (4 CX, 7 EQ; ints, loops, precondition, arrays, indexing) |
 | Benchmarks | `benchmarks/` | ✅ recall (zero-unsound gate) + timing-vs-bound |
 | Early exit (`return` in loops) | `src/congruent/symbolic.py` | ✅ unified state-threading pass; search/find-first verify |
+| Counterexample minimization | `src/congruent/solver.py` | ✅ incremental solver shrink (length, then scalars→0); `--no-minimize` |
 | Demo gallery | `examples/` + `docs/demo.svg` | ✅ 6 realistic refactor pairs + runner, pinned by tests |
-| Tests | `tests/` | ✅ 105 pass |
+| Tests | `tests/` | ✅ 108 pass |
 
 ## What M0 delivers
 
@@ -155,6 +156,11 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-06-25** — **M5: counterexample minimization.** Symbolic counterexamples
+  are shrunk (shortest list, then scalars→0) via cheap incremental solver calls;
+  `--no-minimize` flag; `counterexample minimized` note. (Note: `z3.Optimize` was
+  tried first and hung over bitvectors — replaced with the iterative approach.)
+  difftest witnesses stay boundary-minimal. Tests: 108 pass.
 - **2026-06-25** — **M4: early exit (`return` in loops).** Rewrote the symbolic
   interpreter as one state-threading pass carrying `(env, returned, return_value)`,
   so `return` works anywhere (including loops); fall-off-end folded into the error
