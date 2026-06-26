@@ -2,7 +2,7 @@
 
 Running log of where the build is and what's next. Keep this honest — it's the working memory between build sessions.
 
-**Current phase:** M0–M5 complete ✅ (symbolic core, loops, preconditions, arrays, sound `xs[i]`/divide-by-zero, benchmarks/gallery, early-exit `return`, counterexample minimization) — **next: M6** (list outputs), then `break`/`continue`. See [ROADMAP.md](ROADMAP.md).
+**Current phase:** M0–M6 complete ✅ (symbolic core, loops, preconditions, arrays, sound `xs[i]`/divide-by-zero, benchmarks/gallery, early-exit `return`, minimization, list outputs) — **next: M7** (CVC5 backend / strings / `break`+`continue`). See [ROADMAP.md](ROADMAP.md).
 
 ## State of the tree
 
@@ -21,12 +21,13 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Runtime-error modeling | `src/congruent/symbolic.py` | ✅ OOB access + divide-by-zero as guarded errors (path-condition aware) |
 | CLI | `src/congruent/cli.py` | ✅ parse → check → report, `--assume`, exit codes 0/1/2 |
 | Verdict formatting | `src/congruent/report.py` | ✅ done (all four statuses) |
-| Fixtures (eval set) | `tests/fixtures/` | ✅ 11 pairs (4 CX, 7 EQ; ints, loops, precondition, arrays, indexing) |
+| Fixtures (eval set) | `tests/fixtures/` | ✅ 14 pairs (5 CX, 9 EQ; ints, loops, precondition, arrays, indexing, early-exit, list outputs) |
 | Benchmarks | `benchmarks/` | ✅ recall (zero-unsound gate) + timing-vs-bound |
 | Early exit (`return` in loops) | `src/congruent/symbolic.py` | ✅ unified state-threading pass; search/find-first verify |
 | Counterexample minimization | `src/congruent/solver.py` | ✅ incremental solver shrink (length, then scalars→0); `--no-minimize` |
-| Demo gallery | `examples/` + `docs/demo.svg` | ✅ 6 realistic refactor pairs + runner, pinned by tests |
-| Tests | `tests/` | ✅ 108 pass |
+| List outputs (build/return `list[int]`) | `ir.py` / `difftest.py` / `symbolic.py` / `solver.py` | ✅ literals + concat; map/filter verify; output length bounded |
+| Demo gallery | `examples/` + `docs/demo.svg` | ✅ 7 realistic refactor pairs + runner, pinned by tests |
+| Tests | `tests/` | ✅ 121 pass |
 
 ## What M0 delivers
 
@@ -156,6 +157,13 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-06-25** — **M6: list outputs.** List literals + `+` concatenation; built
+  lists modeled as Z3 array + length (fast append path for `r + [x]`, general
+  `concat`); output length bounded to `bound`; element-wise output equivalence;
+  return-type-mismatch → ERROR. map/filter/identity-rebuild verify; off-by-one
+  map, `>`/`>=` filter, non-commutative concat give counterexamples. Added
+  `map_double` + `list_filter_bug` fixtures and `keep_positives` example. Tests:
+  121 pass, 14/14 fixtures, 0 unsound.
 - **2026-06-25** — **M5: counterexample minimization.** Symbolic counterexamples
   are shrunk (shortest list, then scalars→0) via cheap incremental solver calls;
   `--no-minimize` flag; `counterexample minimized` note. (Note: `z3.Optimize` was
