@@ -2,7 +2,7 @@
 
 Running log of where the build is and what's next. Keep this honest — it's the working memory between build sessions.
 
-**Current phase:** M0, M1 complete ✅; M2 loops landed — next: arrays + input preconditions
+**Current phase:** M0, M1 complete ✅; M2 loops + preconditions landed — next: arrays
 
 ## State of the tree
 
@@ -16,10 +16,11 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Symbolic interpreter → Z3 | `src/congruent/symbolic.py` | ✅ path-merge, bitvectors, floor //, **loop unrolling** |
 | Z3 query + model decode | `src/congruent/solver.py` | ✅ UNSAT/SAT/unknown → Verdict; in-bound assumptions |
 | Bounded loops (`for range`) | `ir.py` / `difftest.py` / `symbolic.py` | ✅ parse + capped concrete eval + symbolic unroll |
-| CLI | `src/congruent/cli.py` | ✅ parse → check → report, exit codes 0/1/2 |
+| Input preconditions (`assume`) | `ir.py` / `difftest.py` / `symbolic.py` | ✅ filters difftest + constrains solver; CLI `--assume` |
+| CLI | `src/congruent/cli.py` | ✅ parse → check → report, `--assume`, exit codes 0/1/2 |
 | Verdict formatting | `src/congruent/report.py` | ✅ done (all four statuses) |
-| Fixtures (eval set) | `tests/fixtures/` | ✅ 6 pairs (3 CX, 3 EQ; incl. 2 loop pairs) |
-| Tests | `tests/` | ✅ 57 pass |
+| Fixtures (eval set) | `tests/fixtures/` | ✅ 7 pairs (3 CX, 4 EQ; incl. loops + a precondition) |
+| Tests | `tests/` | ✅ 66 pass |
 
 ## What M0 delivers
 
@@ -71,21 +72,32 @@ for this reason.
   exceed it — so difftest explores exactly the in-bound domain the symbolic
   stage proves over, and the two never contradict.
 
-### Why `sum_to_n` is still not a fixture
+## What preconditions deliver
 
-`n*(n+1)//2` vs. an accumulating loop needs an `n >= 0` precondition (negative
-`n` makes the loop empty but the closed form nonzero) — and the tool can't yet
-express input preconditions. `loop_reorder` (reversed accumulation) is the
-honest loop-equivalence fixture: equal for *all* inputs within the bound.
+- A leading `assume(<bool expr>)` in a function declares an input precondition
+  (`assume` is a no-op at runtime, so files stay runnable). The CLI also takes
+  repeatable `--assume "EXPR"`.
+- difftest **filters** inputs violating any precondition; the solver **adds**
+  them as constraints. So both stages reason over the same restricted domain.
+- The verdict carries a `precondition: ...` note, and EQUIVALENT wording adjusts
+  ("complete over inputs satisfying the precondition").
+
+### Subtlety found while building this (loop-bound overflow)
+
+The first in-bound condition (`Not(start + bound < stop)`) was unsound: at
+`n = INT_MAX`, `range(n + 1)` overflows to an *empty* range, which it wrongly
+counted as in-bounds, yielding a bogus counterexample. Fixed: in-bound now
+requires `stop ∈ [start, start + bound]` with no index-window wrap, applied
+identically in the concrete cap and the symbolic assumption. A nice consequence:
+`sum_to_n` (`range(n + 1)`) proves EQUIVALENT up to bound *without* needing the
+precondition, because the divergent negatives fall outside the in-bound window.
+The precondition machinery is demonstrated by identity-vs-abs instead.
 
 ## Next actions (rest of M2)
 
-1. **Input preconditions** (`assume n >= 0`, or an `# congruent: assume ...`
-   pragma) → added to both difftest filtering and the solver query. Unlocks
-   `sum_to_n` and many real refactors.
-2. **`list[int]` arrays**: fixed-length symbolic arrays — indexing, `len`,
+1. **`list[int]` arrays**: fixed-length symbolic arrays — indexing, `len`,
    `for x in xs`. Decide Z3 arrays vs. fixed-length element vectors.
-3. Consider `return` inside loops (needs the CPS merge to thread an
+2. Consider `return` inside loops (needs the CPS merge to thread an
    "already-returned" guard through unrolling).
 
 ## Open design decisions (resolve before/while building the symbolic core)
@@ -99,6 +111,11 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-06-25** — **Input preconditions landed.** Leading `assume(<expr>)` +
+  CLI `--assume`; difftest filters and the solver constrains over the precondition
+  domain; verdict notes the precondition. Fixed a loop-bound-overflow soundness
+  bug in the in-bound condition (now requires a non-wrapping index window).
+  `sum_to_n` re-added as an EQUIVALENT fixture. Tests: 66 pass.
 - **2026-06-25** — **M2 loops landed.** `for ... in range(...)` in IR/parser;
   symbolic loop unrolling with guarded iterations + in-bound (BMC) assumptions;
   concrete interpreter caps loops at `bound` so difftest stays in the in-bound
