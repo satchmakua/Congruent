@@ -2,23 +2,23 @@
 
 Running log of where the build is and what's next. Keep this honest — it's the working memory between build sessions.
 
-**Current phase:** M0 complete ✅ — next up is M1 (symbolic core)
+**Current phase:** M0 + M1 complete ✅ — next up is M2 (bounded loops + arrays)
 
 ## State of the tree
 
 | Component | File | Status |
 | --- | --- | --- |
 | Verdict / Counterexample data model | `src/congruent/equiv.py` | ✅ done |
-| Orchestration / escalation | `src/congruent/equiv.py` | ✅ `check()` runs Stage 1; ERROR on signature mismatch |
+| Orchestration / escalation | `src/congruent/equiv.py` | ✅ difftest → symbolic, sound UNKNOWN fallback |
 | AST → typed IR + subset validation | `src/congruent/ir.py` | ✅ done (loud `UnsupportedConstruct`) |
 | Fixed-width concrete interpreter | `src/congruent/difftest.py` | ✅ done (two's-complement, catches overflow) |
 | Differential tester | `src/congruent/difftest.py` | ✅ done (boundary + random generation) |
+| Symbolic interpreter → Z3 | `src/congruent/symbolic.py` | ✅ done (path-merge, bitvectors, floor //) |
+| Z3 query + model decode | `src/congruent/solver.py` | ✅ done (UNSAT/SAT/unknown → Verdict) |
 | CLI | `src/congruent/cli.py` | ✅ parse → check → report, exit codes 0/1/2 |
-| Verdict formatting | `src/congruent/report.py` | ✅ done (EQUIVALENT/COUNTEREXAMPLE/UNKNOWN/ERROR) |
-| Symbolic interpreter → Z3 | `src/congruent/symbolic.py` | ⬜ stub (M1) |
-| Z3 abstraction + model decode | `src/congruent/solver.py` | ⬜ stub (M1) |
+| Verdict formatting | `src/congruent/report.py` | ✅ done (all four statuses) |
 | Fixtures (eval set) | `tests/fixtures/` | ✅ 4 pairs (2 CX, 2 EQ) |
-| Tests | `tests/` | ✅ 35 pass, 2 xfail (M1 equivalence proofs) |
+| Tests | `tests/` | ✅ 43 pass |
 
 ## What M0 delivers
 
@@ -39,27 +39,47 @@ should report a counterexample. Such pairs belong in M2 (bounded loops + bounded
 input domains), not the M0 eval set — the original `sum_to_n` fixture was replaced
 for this reason.
 
-## Next actions (M1 — symbolic core, the credibility milestone)
+## What M1 delivers
 
-1. `symbolic.summarize` — interpret the IR over fresh Z3 symbols (bitvectors for
-   ints), forking on branches, collecting (path condition, output) per path.
-   Mirror the concrete interpreter's semantics exactly so M0 and M1 agree.
-2. `solver.prove_equivalence` — assert *inputs equal ∧ outputs differ*; `UNSAT`
-   → EQUIVALENT, `SAT` → decode model → COUNTEREXAMPLE, `unknown` → UNKNOWN.
-3. `equiv.check` — escalate difftest → symbolic; flip the `test_equivalent_
-   fixtures_are_proven` xfail to passing.
+- `symbolic.summarize` lowers a loop-free function to a single Z3 bitvector
+  expression. Branches and early `return`s are handled by continuation-passing
+  path merging (`if`-body that returns, then fall-through, becomes one `ite`).
+- Semantics mirror the concrete interpreter: two's-complement wrap, signed
+  comparisons, and **Python floor `//`/`%`** (Z3's `/` truncates, so floor is
+  reconstructed explicitly — otherwise M0 and M1 would disagree on negatives).
+- `solver.prove_equivalence` asserts the two outputs differ over shared inputs;
+  `UNSAT` → EQUIVALENT (complete over the width, since no loops), `SAT` → model
+  decoded to a `Counterexample`, `unknown` → UNKNOWN.
+- **Soundness fallback:** anything not modeled (non-constant/zero divisor, list
+  params) raises `UnsupportedForProof` and `check()` returns UNKNOWN — never a
+  false EQUIVALENT.
+
+## Next actions (M2 — bounded loops + arrays)
+
+1. IR + both interpreters: support `for ... in range(...)`; unroll to depth
+   `bound` symbolically; cap concrete loop iterations.
+2. Introduce **bounded input domains** so loop-vs-closed-form pairs (e.g.
+   `sum_to_n`) can be asked over `0 <= n <= bound`; report the bound honestly.
+3. `list[int]` as fixed-length symbolic arrays (Z3 arrays or element vectors).
+4. Re-add the `sum_to_n` fixture under the bounded-domain semantics.
 
 ## Open design decisions (resolve before/while building the symbolic core)
 
 From the foundational doc §8. Recommendations noted; nothing is locked.
 
-1. **Symbolic layer: build-your-own vs. existing tools.** → **Recommended: build-your-own** mini symbolic interpreter over the Python AST subset (owns the "from scratch" signal). Fall back to a `crosshair`/`klee`-style tool only if time-boxed.
+1. **Symbolic layer: build-your-own vs. existing tools.** ✅ **Resolved: built-our-own** mini symbolic interpreter (`symbolic.py`) over the IR subset, emitting Z3 directly. Owns the "from scratch" signal.
 2. **Python subset grammar.** *(M0: settled for straight-line/branching code.)* Implemented: `def` (annotated positional params), `return`, name/aug assignment, `if/elif/else`, conditional expressions, int/bool arithmetic (`+ - * // %`, unary `-`), comparisons (incl. chained), `and/or/not`. Loops + arrays deferred to M2. Everything else → `UnsupportedConstruct`.
 3. **Integer model.** ✅ **Resolved: fixed-width bitvectors** (catches overflow — the killer demo). M0's concrete interpreter wraps to `--int-width` two's-complement; M1's Z3 model must match.
 4. **Counterexample decoding + minimization.** Decode Z3 model → concrete inputs for M1; minimization (shrink to smallest failing input) deferred to M4.
 
 ## Changelog
 
+- **2026-06-25** — **M1 complete (symbolic core).** `symbolic.py` lowers loop-free
+  functions to Z3 bitvector expressions via continuation-passing path merging;
+  Python-faithful floor `//`/`%`; `solver.py` solves the equivalence query and
+  decodes counterexamples; `check()` escalates difftest → symbolic with a sound
+  UNKNOWN fallback for unmodeled constructs. Resolved §8 decision 1 → built our
+  own interpreter. z3-solver added. Tests: 43 pass.
 - **2026-06-25** — **M0 complete.** IR parser + v1 subset validation; fixed-width
   two's-complement concrete interpreter; differential tester (boundary + random);
   `check()` wired (COUNTEREXAMPLE/UNKNOWN/ERROR); CLI parse→check→report with exit
