@@ -2,7 +2,7 @@
 
 Running log of where the build is and what's next. Keep this honest — it's the working memory between build sessions.
 
-**Current phase:** M0–M2 core complete ✅; M3 benchmarks landed ✅ — next: M3 demo image / gallery, or M2 refinements (indexing-in-proofs, list outputs)
+**Current phase:** M0–M2 complete ✅ (incl. sound `xs[i]` / divide-by-zero in proofs); M3 benchmarks landed ✅ — next: M3 demo image / gallery, or `return`-in-loops / list outputs
 
 ## State of the tree
 
@@ -17,12 +17,13 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Z3 query + model decode | `src/congruent/solver.py` | ✅ UNSAT/SAT/unknown → Verdict; in-bound assumptions |
 | Bounded loops (`for range`) | `ir.py` / `difftest.py` / `symbolic.py` | ✅ parse + capped concrete eval + symbolic unroll |
 | Input preconditions (`assume`) | `ir.py` / `difftest.py` / `symbolic.py` | ✅ filters difftest + constrains solver; CLI `--assume` |
-| `list[int]` arrays | `ir.py` / `difftest.py` / `symbolic.py` | ✅ bounded arrays, `len`, `for x in xs` (proven); `xs[i]` difftest-only |
+| `list[int]` arrays | `ir.py` / `difftest.py` / `symbolic.py` | ✅ bounded arrays, `len`, `for x in xs`, `xs[i]` (proven) |
+| Runtime-error modeling | `src/congruent/symbolic.py` | ✅ OOB access + divide-by-zero as guarded errors (path-condition aware) |
 | CLI | `src/congruent/cli.py` | ✅ parse → check → report, `--assume`, exit codes 0/1/2 |
 | Verdict formatting | `src/congruent/report.py` | ✅ done (all four statuses) |
-| Fixtures (eval set) | `tests/fixtures/` | ✅ 10 pairs (4 CX, 6 EQ; ints, loops, precondition, arrays) |
+| Fixtures (eval set) | `tests/fixtures/` | ✅ 11 pairs (4 CX, 7 EQ; ints, loops, precondition, arrays, indexing) |
 | Benchmarks | `benchmarks/` | ✅ recall (zero-unsound gate) + timing-vs-bound |
-| Tests | `tests/` | ✅ 87 pass |
+| Tests | `tests/` | ✅ 94 pass |
 
 ## What M0 delivers
 
@@ -100,22 +101,32 @@ The precondition machinery is demonstrated by identity-vs-abs instead.
 - `list[int]` inputs modeled as a Z3 `Array(BV, BV)` plus a symbolic `length`,
   with a well-formedness constraint `0 <= length <= bound` added to the query
   (the bounded-array domain). difftest generates Python lists of length 0..bound.
-- `len(xs)` and `for x in xs` (iterating, length-bounded so always within the
-  unroll bound). `xs[i]` reads work in the concrete/difftest stage with explicit
-  in-bounds checks (out-of-range, incl. negative, is a divergence).
-- Array verdicts read "holds within bound: lists up to length N".
-- **Subscript in proofs is declined** (`UnsupportedForProof`): `xs[i]` is only
-  sound under a per-access in-bounds guard, which needs path conditions the
-  env-merge unrolling doesn't track yet. So indexed functions get a difftest
-  COUNTEREXAMPLE or UNKNOWN — never a false EQUIVALENT.
-- Merge fix: loop/if env merges now touch only the (scalar) written variables,
-  so immutable list params aren't run through the scalar `ite` merge.
+- `len(xs)`, `for x in xs` (length-bounded so always within the unroll bound),
+  and `xs[i]` reads. Array verdicts read "holds within bound: lists up to length N".
+- Merge fix: loop/if env merges touch only the (scalar) written variables, so
+  immutable list params aren't run through the scalar `ite` merge.
+
+## What runtime-error modeling delivers (sound `xs[i]` and division)
+
+- Each function summary is now `(output, error)`. `error` is the disjunction of
+  every **guarded** runtime error — an out-of-bounds `xs[i]` (`Not(0 <= i <
+  len)`) or a divide/modulo by zero — each `And`-ed with the **path condition**
+  under which it executes. The interpreter threads `pc` through every node,
+  refining it on `if` branches, loop-iteration guards, and `and`/`or`
+  short-circuits (so `i < len(xs) and xs[i] > 0` is error-free).
+- Equivalence query: `error_o != error_c  OR  (¬error_o ∧ ¬error_c ∧ out_o !=
+  out_c)`. A rewrite that crashes where the original didn't is a counterexample;
+  one that *avoids* a crash the original had is too.
+- This removed the earlier UNKNOWN fallbacks: non-constant divisors and `xs[i]`
+  are now proven (or refuted) soundly — no "assume in-bounds" caveat. Total
+  fixed-width `//`/`%` and `Select` are well-defined; the garbage value under an
+  error is never compared (guarded by `¬error`).
 
 ## What M3 benchmarks deliver
 
 - `benchmarks/bench_recall.py` — runs `check` over all fixtures, tabulates
   verdict vs. `EXPECTED`, and exits non-zero on any unsound verdict (false
-  EQUIVALENT / false COUNTEREXAMPLE). Currently 10/10 match, 0 unsound.
+  EQUIVALENT / false COUNTEREXAMPLE). Currently 11/11 match, 0 unsound.
 - `benchmarks/bench_scaling.py` — solver time vs. `--bound` on the loop/array
   fixtures (sub-100ms through bound 32).
 - `tests/test_benchmarks.py` locks the "no unsound verdicts / fully decided"
@@ -125,8 +136,11 @@ The precondition machinery is demonstrated by identity-vs-abs instead.
 
 - **Finish M3**: a README demo image of the midpoint-overflow catch; a curated
   gallery of real AI-refactor pairs beyond the unit fixtures.
-- **M2 refinements**: `xs[i]` in proofs (path-condition-guarded access
-  assumptions); `return`/`break`/`continue` in loops; list *outputs*.
+- **Language coverage**: `return`/`break`/`continue` inside loops (thread an
+  "already-returned" guard through unrolling); list *outputs* (functions that
+  build and return a list); bounded strings.
+- **M4 stretch**: counterexample minimization; a C-subset front end; pluggable
+  CVC5 backend behind the solver interface.
 
 ## Open design decisions (resolve before/while building the symbolic core)
 
@@ -139,8 +153,14 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-06-25** — **Sound `xs[i]` + division in proofs.** Each function summary
+  is now `(output, error)`; out-of-bounds access and divide-by-zero are modeled
+  as path-condition-guarded runtime errors, and equivalence requires matching
+  error behavior. Removed the UNKNOWN fallbacks for indexing / non-constant
+  divisors. Added `array_first` fixture (guarded indexing proven). Tests: 94 pass,
+  11/11 fixtures, 0 unsound.
 - **2026-06-25** — **M3 benchmarks landed.** `bench_recall.py` (recall table +
-  zero-unsound-verdict gate, 10/10 match) and `bench_scaling.py` (time vs. bound);
+  zero-unsound-verdict gate, 11/11 match) and `bench_scaling.py` (time vs. bound);
   `test_benchmarks.py` guards the invariant. Tests: 87 pass.
 - **2026-06-25** — **M2 arrays landed.** `list[int]` inputs as bounded Z3 arrays +
   symbolic length; `len(xs)` and `for x in xs` proven; `xs[i]` reads in difftest
