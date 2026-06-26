@@ -2,7 +2,7 @@
 
 Running log of where the build is and what's next. Keep this honest — it's the working memory between build sessions.
 
-**Current phase:** M0 + M1 complete ✅ — next up is M2 (bounded loops + arrays)
+**Current phase:** M0, M1 complete ✅; M2 loops landed — next: arrays + input preconditions
 
 ## State of the tree
 
@@ -13,12 +13,13 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | AST → typed IR + subset validation | `src/congruent/ir.py` | ✅ done (loud `UnsupportedConstruct`) |
 | Fixed-width concrete interpreter | `src/congruent/difftest.py` | ✅ done (two's-complement, catches overflow) |
 | Differential tester | `src/congruent/difftest.py` | ✅ done (boundary + random generation) |
-| Symbolic interpreter → Z3 | `src/congruent/symbolic.py` | ✅ done (path-merge, bitvectors, floor //) |
-| Z3 query + model decode | `src/congruent/solver.py` | ✅ done (UNSAT/SAT/unknown → Verdict) |
+| Symbolic interpreter → Z3 | `src/congruent/symbolic.py` | ✅ path-merge, bitvectors, floor //, **loop unrolling** |
+| Z3 query + model decode | `src/congruent/solver.py` | ✅ UNSAT/SAT/unknown → Verdict; in-bound assumptions |
+| Bounded loops (`for range`) | `ir.py` / `difftest.py` / `symbolic.py` | ✅ parse + capped concrete eval + symbolic unroll |
 | CLI | `src/congruent/cli.py` | ✅ parse → check → report, exit codes 0/1/2 |
 | Verdict formatting | `src/congruent/report.py` | ✅ done (all four statuses) |
-| Fixtures (eval set) | `tests/fixtures/` | ✅ 4 pairs (2 CX, 2 EQ) |
-| Tests | `tests/` | ✅ 43 pass |
+| Fixtures (eval set) | `tests/fixtures/` | ✅ 6 pairs (3 CX, 3 EQ; incl. 2 loop pairs) |
+| Tests | `tests/` | ✅ 57 pass |
 
 ## What M0 delivers
 
@@ -54,14 +55,38 @@ for this reason.
   params) raises `UnsupportedForProof` and `check()` returns UNKNOWN — never a
   false EQUIVALENT.
 
-## Next actions (M2 — bounded loops + arrays)
+## What M2 (loops) delivers
 
-1. IR + both interpreters: support `for ... in range(...)`; unroll to depth
-   `bound` symbolically; cap concrete loop iterations.
-2. Introduce **bounded input domains** so loop-vs-closed-form pairs (e.g.
-   `sum_to_n`) can be asked over `0 <= n <= bound`; report the bound honestly.
-3. `list[int]` as fixed-length symbolic arrays (Z3 arrays or element vectors).
-4. Re-add the `sum_to_n` fixture under the bounded-domain semantics.
+- `for <var> in range(...)` in the IR/parser (`range(stop)` and `range(start,
+  stop)`); `return`/`break`/`continue` inside loops are rejected for now.
+- **Symbolic unrolling** (`symbolic._unroll_for`): unroll `bound` times, each
+  iteration guarded by `start + k < stop`; loop bodies run as environment
+  transformers (no early return), with an `ite` merge per guarded step. Loop
+  variables don't escape; variables written in the loop must be initialized
+  before it (else `UnsupportedForProof`).
+- **Bounded model checking**: an in-bound assumption (`Not(start + bound <
+  stop)`) is added to the query, so a loop verdict means "EQUIVALENT *up to
+  bound N*". Loop-free proofs stay complete (the verdict text distinguishes).
+- **Concrete interpreter caps loops at `bound`** and difftest skips inputs that
+  exceed it — so difftest explores exactly the in-bound domain the symbolic
+  stage proves over, and the two never contradict.
+
+### Why `sum_to_n` is still not a fixture
+
+`n*(n+1)//2` vs. an accumulating loop needs an `n >= 0` precondition (negative
+`n` makes the loop empty but the closed form nonzero) — and the tool can't yet
+express input preconditions. `loop_reorder` (reversed accumulation) is the
+honest loop-equivalence fixture: equal for *all* inputs within the bound.
+
+## Next actions (rest of M2)
+
+1. **Input preconditions** (`assume n >= 0`, or an `# congruent: assume ...`
+   pragma) → added to both difftest filtering and the solver query. Unlocks
+   `sum_to_n` and many real refactors.
+2. **`list[int]` arrays**: fixed-length symbolic arrays — indexing, `len`,
+   `for x in xs`. Decide Z3 arrays vs. fixed-length element vectors.
+3. Consider `return` inside loops (needs the CPS merge to thread an
+   "already-returned" guard through unrolling).
 
 ## Open design decisions (resolve before/while building the symbolic core)
 
@@ -74,6 +99,12 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-06-25** — **M2 loops landed.** `for ... in range(...)` in IR/parser;
+  symbolic loop unrolling with guarded iterations + in-bound (BMC) assumptions;
+  concrete interpreter caps loops at `bound` so difftest stays in the in-bound
+  domain. Loop verdicts read "up to bound N"; loop-free stay complete. Fixtures
+  `loop_reorder` (EQ) and `loop_off_by_one` (CX) added; `sum_to_n` deferred until
+  input preconditions exist. Tests: 57 pass.
 - **2026-06-25** — **M1 complete (symbolic core).** `symbolic.py` lowers loop-free
   functions to Z3 bitvector expressions via continuation-passing path merging;
   Python-faithful floor `//`/`%`; `solver.py` solves the equivalence query and
