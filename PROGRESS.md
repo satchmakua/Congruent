@@ -2,7 +2,7 @@
 
 Running log of where the build is and what's next. Keep this honest — it's the working memory between build sessions.
 
-**Current phase:** M0–M2 complete ✅ (incl. sound `xs[i]` / divide-by-zero in proofs); M3 benchmarks landed ✅ — next: M3 demo image / gallery, or `return`-in-loops / list outputs
+**Current phase:** M0–M4 complete ✅ (symbolic core, loops, preconditions, arrays, sound `xs[i]`/divide-by-zero, benchmarks/gallery, early-exit `return` in loops) — **next: M5** (counterexample minimization), then `break`/`continue`. See [ROADMAP.md](ROADMAP.md).
 
 ## State of the tree
 
@@ -23,7 +23,9 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Verdict formatting | `src/congruent/report.py` | ✅ done (all four statuses) |
 | Fixtures (eval set) | `tests/fixtures/` | ✅ 11 pairs (4 CX, 7 EQ; ints, loops, precondition, arrays, indexing) |
 | Benchmarks | `benchmarks/` | ✅ recall (zero-unsound gate) + timing-vs-bound |
-| Tests | `tests/` | ✅ 94 pass |
+| Early exit (`return` in loops) | `src/congruent/symbolic.py` | ✅ unified state-threading pass; search/find-first verify |
+| Demo gallery | `examples/` + `docs/demo.svg` | ✅ 6 realistic refactor pairs + runner, pinned by tests |
+| Tests | `tests/` | ✅ 105 pass |
 
 ## What M0 delivers
 
@@ -153,6 +155,17 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-06-25** — **M4: early exit (`return` in loops).** Rewrote the symbolic
+  interpreter as one state-threading pass carrying `(env, returned, return_value)`,
+  so `return` works anywhere (including loops); fall-off-end folded into the error
+  condition. Parser allows return-in-loop (still rejects `break`/`continue`). Added
+  `contains` fixture + `all_positive` example + early-exit tests. Tests: 105 pass,
+  12/12 fixtures, 0 unsound.
+- **2026-06-25** — **M3 complete: demo gallery + roadmap.** `examples/` gallery of
+  5 realistic AI-refactor pairs (`run_gallery.py`, pinned by `test_examples.py`);
+  committed `docs/demo.svg` leading the README; deduped precondition notes.
+  Rewrote ROADMAP into an ordered plan with "done when" criteria (next: M4 early
+  exit). Tests: 95 pass.
 - **2026-06-25** — **Sound `xs[i]` + division in proofs.** Each function summary
   is now `(output, error)`; out-of-bounds access and divide-by-zero are modeled
   as path-condition-guarded runtime errors, and equivalence requires matching
