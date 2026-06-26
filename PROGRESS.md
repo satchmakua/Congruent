@@ -2,7 +2,7 @@
 
 Running log of where the build is and what's next. Keep this honest — it's the working memory between build sessions.
 
-**Current phase:** M0, M1 complete ✅; M2 loops + preconditions landed — next: arrays
+**Current phase:** M0–M2 core complete ✅; M3 benchmarks landed ✅ — next: M3 demo image / gallery, or M2 refinements (indexing-in-proofs, list outputs)
 
 ## State of the tree
 
@@ -17,10 +17,12 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Z3 query + model decode | `src/congruent/solver.py` | ✅ UNSAT/SAT/unknown → Verdict; in-bound assumptions |
 | Bounded loops (`for range`) | `ir.py` / `difftest.py` / `symbolic.py` | ✅ parse + capped concrete eval + symbolic unroll |
 | Input preconditions (`assume`) | `ir.py` / `difftest.py` / `symbolic.py` | ✅ filters difftest + constrains solver; CLI `--assume` |
+| `list[int]` arrays | `ir.py` / `difftest.py` / `symbolic.py` | ✅ bounded arrays, `len`, `for x in xs` (proven); `xs[i]` difftest-only |
 | CLI | `src/congruent/cli.py` | ✅ parse → check → report, `--assume`, exit codes 0/1/2 |
 | Verdict formatting | `src/congruent/report.py` | ✅ done (all four statuses) |
-| Fixtures (eval set) | `tests/fixtures/` | ✅ 7 pairs (3 CX, 4 EQ; incl. loops + a precondition) |
-| Tests | `tests/` | ✅ 66 pass |
+| Fixtures (eval set) | `tests/fixtures/` | ✅ 10 pairs (4 CX, 6 EQ; ints, loops, precondition, arrays) |
+| Benchmarks | `benchmarks/` | ✅ recall (zero-unsound gate) + timing-vs-bound |
+| Tests | `tests/` | ✅ 87 pass |
 
 ## What M0 delivers
 
@@ -93,12 +95,38 @@ identically in the concrete cap and the symbolic assumption. A nice consequence:
 precondition, because the divergent negatives fall outside the in-bound window.
 The precondition machinery is demonstrated by identity-vs-abs instead.
 
-## Next actions (rest of M2)
+## What M2 arrays deliver
 
-1. **`list[int]` arrays**: fixed-length symbolic arrays — indexing, `len`,
-   `for x in xs`. Decide Z3 arrays vs. fixed-length element vectors.
-2. Consider `return` inside loops (needs the CPS merge to thread an
-   "already-returned" guard through unrolling).
+- `list[int]` inputs modeled as a Z3 `Array(BV, BV)` plus a symbolic `length`,
+  with a well-formedness constraint `0 <= length <= bound` added to the query
+  (the bounded-array domain). difftest generates Python lists of length 0..bound.
+- `len(xs)` and `for x in xs` (iterating, length-bounded so always within the
+  unroll bound). `xs[i]` reads work in the concrete/difftest stage with explicit
+  in-bounds checks (out-of-range, incl. negative, is a divergence).
+- Array verdicts read "holds within bound: lists up to length N".
+- **Subscript in proofs is declined** (`UnsupportedForProof`): `xs[i]` is only
+  sound under a per-access in-bounds guard, which needs path conditions the
+  env-merge unrolling doesn't track yet. So indexed functions get a difftest
+  COUNTEREXAMPLE or UNKNOWN — never a false EQUIVALENT.
+- Merge fix: loop/if env merges now touch only the (scalar) written variables,
+  so immutable list params aren't run through the scalar `ite` merge.
+
+## What M3 benchmarks deliver
+
+- `benchmarks/bench_recall.py` — runs `check` over all fixtures, tabulates
+  verdict vs. `EXPECTED`, and exits non-zero on any unsound verdict (false
+  EQUIVALENT / false COUNTEREXAMPLE). Currently 10/10 match, 0 unsound.
+- `benchmarks/bench_scaling.py` — solver time vs. `--bound` on the loop/array
+  fixtures (sub-100ms through bound 32).
+- `tests/test_benchmarks.py` locks the "no unsound verdicts / fully decided"
+  invariant into the suite.
+
+## Next actions (options)
+
+- **Finish M3**: a README demo image of the midpoint-overflow catch; a curated
+  gallery of real AI-refactor pairs beyond the unit fixtures.
+- **M2 refinements**: `xs[i]` in proofs (path-condition-guarded access
+  assumptions); `return`/`break`/`continue` in loops; list *outputs*.
 
 ## Open design decisions (resolve before/while building the symbolic core)
 
@@ -111,6 +139,13 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-06-25** — **M3 benchmarks landed.** `bench_recall.py` (recall table +
+  zero-unsound-verdict gate, 10/10 match) and `bench_scaling.py` (time vs. bound);
+  `test_benchmarks.py` guards the invariant. Tests: 87 pass.
+- **2026-06-25** — **M2 arrays landed.** `list[int]` inputs as bounded Z3 arrays +
+  symbolic length; `len(xs)` and `for x in xs` proven; `xs[i]` reads in difftest
+  (declined in proofs for soundness). Env-merge fix so list params skip scalar
+  merges. 3 array fixtures. Verdict notes array-length bound. Tests: 85 pass.
 - **2026-06-25** — **Input preconditions landed.** Leading `assume(<expr>)` +
   CLI `--assume`; difftest filters and the solver constrains over the precondition
   domain; verdict notes the precondition. Fixed a loop-bound-overflow soundness
