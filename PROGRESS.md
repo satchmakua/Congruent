@@ -2,7 +2,7 @@
 
 Running log of where the build is and what's next. Keep this honest — it's the working memory between build sessions.
 
-**Current phase:** M0–M6 complete ✅; M7 underway (✅ `break`/`continue`) — **next in M7:** CVC5 cross-check backend, bounded strings. See [ROADMAP.md](ROADMAP.md).
+**Current phase:** M0–M7 complete ✅ (incl. CVC5 cross-check, bounded strings, C front end); stress-tested + polished (fuzzer, ruff + mypy clean, CI). Only the LLM closed-loop stretch (needs API access) remains. See [ROADMAP.md](ROADMAP.md).
 
 ## State of the tree
 
@@ -21,13 +21,18 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Runtime-error modeling | `src/congruent/symbolic.py` | ✅ OOB access + divide-by-zero as guarded errors (path-condition aware) |
 | CLI | `src/congruent/cli.py` | ✅ parse → check → report, `--assume`, exit codes 0/1/2 |
 | Verdict formatting | `src/congruent/report.py` | ✅ done (all four statuses) |
-| Fixtures (eval set) | `tests/fixtures/` | ✅ 14 pairs (5 CX, 9 EQ; ints, loops, precondition, arrays, indexing, early-exit, list outputs) |
+| Fixtures (eval set) | `tests/fixtures/` | ✅ 16 pairs (ints, loops, preconditions, arrays, indexing, early-exit, list outputs, strings) |
 | Benchmarks | `benchmarks/` | ✅ recall (zero-unsound gate) + timing-vs-bound |
 | Early exit (`return`/`break`/`continue`) | `src/congruent/symbolic.py` | ✅ state-threading pass; `broken`/`continued` per loop |
 | Counterexample minimization | `src/congruent/solver.py` | ✅ incremental solver shrink (length, then scalars→0); `--no-minimize` |
 | List outputs (build/return `list[int]`) | `ir.py` / `difftest.py` / `symbolic.py` / `solver.py` | ✅ literals + concat; map/filter verify; output length bounded |
-| Demo gallery | `examples/` + `docs/demo.svg` | ✅ 8 realistic refactor pairs + runner, pinned by tests |
-| Tests | `tests/` | ✅ 124 pass |
+| CVC5 cross-check backend | `src/congruent/backends.py` | ✅ SMT-LIB2 bridge; `--cross-check`; disagreement → UNKNOWN |
+| Bounded `str` | `ir.py` / `difftest.py` / `symbolic.py` / `solver.py` | ✅ `SymList` `kind="char"`; literals, `len`, `==`, `+`, index, iteration |
+| C front end | `src/congruent/cfront.py` | ✅ pycparser → IR; truncating `/`/`%`; CLI dispatches `.c` |
+| Self-validating fuzzer | `benchmarks/fuzz.py` | ✅ random pairs re-checked vs. concrete interp; CI guard in `test_fuzz.py` |
+| Lint / types / CI | `pyproject.toml`, `.github/workflows/ci.yml` | ✅ ruff + mypy clean; GitHub Actions runs lint/types/tests/recall |
+| Demo gallery | `examples/` + `docs/demo.svg` | ✅ 9 Python pairs + a C example; runner pinned by tests |
+| Tests | `tests/` | ✅ 154 pass (cvc5 / pycparser tests skip if absent) |
 
 ## What M0 delivers
 
@@ -157,6 +162,31 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-06-25** — **Stress test + polish.** Added a self-validating fuzzer
+  (`benchmarks/fuzz.py`): random expression/loop pairs whose verdicts are
+  independently re-checked against the concrete interpreter. Ran ~4,900 pairs +
+  400 Z3/CVC5 cross-checks with **zero unsound verdicts and zero backend
+  disagreements**; wired a fast deterministic batch into `test_fuzz.py`. Made
+  ruff and mypy clean (pragmatic mypy config; the dynamic concrete interpreter is
+  exempt), and added a GitHub Actions CI workflow. Tests: 154 pass.
+- **2026-06-25** — **M7 stretch: C front end.** `cfront.py` lowers a C function
+  (via `pycparser`) to the same IR, so the whole engine is reused. Added C
+  truncating `/`/`%` (IR ops `c/`/`c%`) distinct from Python floor `//`/`%`; the
+  CLI dispatches on the `.c` extension; comments/directives are stripped before
+  parsing. `pycparser` added as an optional extra; `examples/midpoint.c` added.
+  Tests: 153 pass.
+- **2026-06-25** — **M7: bounded strings.** `str` modeled as a bounded sequence of
+  code points (a character is a length-1 string), reusing `SymList` via a `kind`
+  tag ("int" vs "char") so list and string code share nearly everything. Literals,
+  `len`, `==`/`!=`, `+`, indexing, iteration; string elements constrained to ASCII
+  so counterexamples decode cleanly. cvc5 cross-check handles the array-backed
+  queries with `arrays-exp`. Added string fixtures + `string_greeting` example.
+  Tests: 143 pass, 16/16 fixtures, 0 unsound.
+- **2026-06-25** — **M7: CVC5 cross-check backend.** New `backends.py`: Z3 stays
+  primary (encoding + models), CVC5 independently re-decides the same query via an
+  SMT-LIB2 round-trip under `--cross-check`; agreement is noted, disagreement
+  downgrades to UNKNOWN. `cvc5` added as an optional extra. Tests skip when cvc5
+  is absent. Tests: 130 pass.
 - **2026-06-25** — **M7: `break` / `continue`.** Each loop owns a `broken`
   (accumulates across iterations, stops the loop) and a per-iteration `continued`,
   threaded through the state-threading interpreter alongside `returned`; the
