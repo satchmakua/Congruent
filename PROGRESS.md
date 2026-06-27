@@ -2,7 +2,7 @@
 
 Running log of where the build is and what's next. Keep this honest — it's the working memory between build sessions.
 
-**Current phase:** M0–M6 complete ✅ (symbolic core, loops, preconditions, arrays, sound `xs[i]`/divide-by-zero, benchmarks/gallery, early-exit `return`, minimization, list outputs) — **next: M7** (CVC5 backend / strings / `break`+`continue`). See [ROADMAP.md](ROADMAP.md).
+**Current phase:** M0–M6 complete ✅; M7 underway (✅ `break`/`continue`) — **next in M7:** CVC5 cross-check backend, bounded strings. See [ROADMAP.md](ROADMAP.md).
 
 ## State of the tree
 
@@ -23,11 +23,11 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Verdict formatting | `src/congruent/report.py` | ✅ done (all four statuses) |
 | Fixtures (eval set) | `tests/fixtures/` | ✅ 14 pairs (5 CX, 9 EQ; ints, loops, precondition, arrays, indexing, early-exit, list outputs) |
 | Benchmarks | `benchmarks/` | ✅ recall (zero-unsound gate) + timing-vs-bound |
-| Early exit (`return` in loops) | `src/congruent/symbolic.py` | ✅ unified state-threading pass; search/find-first verify |
+| Early exit (`return`/`break`/`continue`) | `src/congruent/symbolic.py` | ✅ state-threading pass; `broken`/`continued` per loop |
 | Counterexample minimization | `src/congruent/solver.py` | ✅ incremental solver shrink (length, then scalars→0); `--no-minimize` |
 | List outputs (build/return `list[int]`) | `ir.py` / `difftest.py` / `symbolic.py` / `solver.py` | ✅ literals + concat; map/filter verify; output length bounded |
-| Demo gallery | `examples/` + `docs/demo.svg` | ✅ 7 realistic refactor pairs + runner, pinned by tests |
-| Tests | `tests/` | ✅ 121 pass |
+| Demo gallery | `examples/` + `docs/demo.svg` | ✅ 8 realistic refactor pairs + runner, pinned by tests |
+| Tests | `tests/` | ✅ 124 pass |
 
 ## What M0 delivers
 
@@ -157,6 +157,11 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-06-25** — **M7: `break` / `continue`.** Each loop owns a `broken`
+  (accumulates across iterations, stops the loop) and a per-iteration `continued`,
+  threaded through the state-threading interpreter alongside `returned`; the
+  concrete interpreter uses exceptions. Parser rejects them outside a loop. Added
+  break/continue tests + `has_negative` example. Tests: 124 pass, 0 unsound.
 - **2026-06-25** — **M6: list outputs.** List literals + `+` concatenation; built
   lists modeled as Z3 array + length (fast append path for `r + [x]`, general
   `concat`); output length bounded to `bound`; element-wise output equivalence;
