@@ -30,11 +30,11 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Bounded `str` | `ir.py` / `difftest.py` / `symbolic.py` / `solver.py` | ✅ `SymList` `kind="char"`; literals, `len`, `==`, `+`, index, iteration |
 | C front end | `src/congruent/cfront.py` | ✅ pycparser → IR; truncating `/`/`%`; CLI dispatches `.c` |
 | Self-validating fuzzer | `benchmarks/fuzz.py` | ✅ random pairs (ints, loops, lists, strings) re-checked vs. concrete interp; CI guard |
-| Adversarial audit | (multi-agent) | ✅ five rounds + real-Python oracle → **24 bugs** the fuzzer missed, all fixed + pinned in `test_regressions.py` |
+| Adversarial audit | (multi-agent) | ✅ six rounds + real-Python oracle → **32 bugs** the fuzzer missed, all fixed + pinned in `test_regressions.py` |
 | Lint / types / CI | `pyproject.toml`, `.github/workflows/ci.yml` | ✅ ruff + mypy clean; GitHub Actions runs lint/types/tests/recall |
 | Demo gallery | `examples/` + `docs/demo.svg` | ✅ 9 Python pairs + a C example; runner pinned by tests |
 | Real-Python oracle | `benchmarks/realpy_fuzz.py` | ✅ unparses IR→Python, diffs vs interpreter — catches bugs both stages share (found negative-indexing) |
-| Tests | `tests/` | ✅ 187 pass (cvc5 / pycparser tests skip if absent) |
+| Tests | `tests/` | ✅ 199 pass (cvc5 / pycparser tests skip if absent) |
 
 ## What M0 delivers
 
@@ -164,6 +164,56 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-06-25** — **Seventh round: audit of the round-6 fixes + 4 more fixes.**
+  Another real-Python-grounded pass returned **8 confirmed findings, 0 false
+  positives**, in 4 root causes: (33) the concrete interpreter `int()`-coerced a
+  non-int where an int is required (`xs["0"]`, `-("5"+s)`, `range("1")`) —
+  `int("0")` succeeds and fabricated a divergence, but Python raises TypeError;
+  it now requires an int (raises otherwise). (34) `len()` was not fixed-width
+  wrapped, so `len(xs + xs)` (128) diverged from `len(xs) + len(xs)` (wraps to
+  −128 at width 8) — `len` now wraps. (35) a *candidate* `assume()` whose argument
+  raises (`assume(xs[0] > 0)` on `[]`) was ignored — the argument evaluation is
+  real behavior, now folded into the candidate's error. (36) **loop-bound scope,
+  redesigned properly**: a range loop is in scope iff its *real* (un-wrapped) trip
+  count ≤ bound AND every loop-variable value is representable — so `range(126,128)`
+  and `range(a, a+1)` at `a=127` run their real 1–2 iterations (superseding round
+  6's coarser decline), while `range(n+1)` at `n=imax` and `range(0, x//-1)` at
+  `x=imin` are correctly out of scope (huge trip count). Pinned all four; added
+  `and`/`or`-value + boundary coverage to both fuzzers. 204 tests, both fuzzers
+  clean. **36 bugs found & fixed total.**
+- **2026-06-25** — **Sixth round: audit of the round-5 fixes + 3 more fixes.** A
+  fresh real-Python-grounded audit of the just-changed code returned **12 confirmed
+  findings, 0 false positives**, in 3 root causes: (30) `and`/`or` were lowered to a
+  **boolean** in both stages, but Python returns an **operand value** (`x or 5` is
+  `x` or `5`, `5 and 3` is `3`) → false EQUIVALENT and false COUNTEREXAMPLE; both
+  stages now return the operand (truthiness in a boolean context is unchanged).
+  (31) a **mixed-type ternary** (`x if x>0 else "a"`, `xs if c else 5`) produced the
+  round-5 `_UNDEFINED` sentinel, which reached the solver and **crashed** z3;
+  `_as_bv`/`_as_bool`/`_coerce_return` now decline on it. (32) an **out-of-width
+  loop-bound literal** (`range(126, 128)` at width 8) was silently wrapped by the
+  symbolic stage, mis-counting the trips → wrong verdict; it now declines to UNKNOWN
+  (and is proven normally at a width where the bound fits). Pinned all three, added
+  `and`/`or`-value coverage to both fuzzers. 199 tests; ~28k fresh fuzz + oracle
+  evaluations clean. **32 bugs found & fixed total.**
+- **2026-06-25** — **Fifth round: real-Python-grounded audit + 5 more fixes.** A
+  6-lens audit re-grounded in *real Python* (not the interpreter, whose shared
+  blind spots gave round-3 false positives) returned **10 confirmed findings, 0
+  false positives**, collapsing to 5 root causes — all fixed: (25) a variable that
+  is a sequence on one branch and a scalar on the other (`if xs: y=xs else: y=0`),
+  or a str on one and a list on the other, **crashed `_merge`** (or mis-merged its
+  kind → false COUNTEREXAMPLE); now such a variable is undefined (declines).
+  (26) a sequence used where a scalar is required (`-xs`, `xs[xs]`) **crashed
+  `_as_bv`** in z3; now declines. (27) an *empty* `range(n)` (n < 0, 0 iterations)
+  was wrongly excluded from scope → **false EQUIVALENT**; the loop-bound in-scope
+  check now allows empty ranges. (28) a near-`imax` bound (`range(126, 127)`)
+  overflowed `start + bound` and was wrongly excluded → **false EQUIVALENT**; the
+  trip-count/guard arithmetic is now widened, with explicit bound-expression
+  overflow detection distinguishing an empty range (in scope) from a wrapped one
+  (out of scope) — keeping the Gauss-vs-loop fixture provable. (29) **falling off
+  the end** (Python returns `None`) was conflated with a raised exception in both
+  stages → **false EQUIVALENT**; `None` is now a distinct outcome (≠ exception,
+  ≠ value; == another `None`). Pinned all five; 195 tests, both fuzzers clean.
+  **29 bugs found & fixed total.**
 - **2026-06-25** — **Fourth round: multi-agent adversarial audit + 3 more fixes.**
   A 6-lens Workflow audit (type/kind confusion, sequence capacity, the `_UNDEFINED`
   sentinel, errors, integer-width, freeform), each finding independently verified,
