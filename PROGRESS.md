@@ -29,10 +29,11 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | CVC5 cross-check backend | `src/congruent/backends.py` | ✅ SMT-LIB2 bridge; `--cross-check`; disagreement → UNKNOWN |
 | Bounded `str` | `ir.py` / `difftest.py` / `symbolic.py` / `solver.py` | ✅ `SymList` `kind="char"`; literals, `len`, `==`, `+`, index, iteration |
 | C front end | `src/congruent/cfront.py` | ✅ pycparser → IR; truncating `/`/`%`; CLI dispatches `.c` |
-| Self-validating fuzzer | `benchmarks/fuzz.py` | ✅ random pairs re-checked vs. concrete interp; CI guard in `test_fuzz.py` |
+| Self-validating fuzzer | `benchmarks/fuzz.py` | ✅ random pairs (ints, loops, lists, strings) re-checked vs. concrete interp; CI guard |
+| Adversarial audit | (multi-agent) | ✅ three rounds → **16 soundness bugs** the fuzzer missed, all fixed + pinned in `test_regressions.py` |
 | Lint / types / CI | `pyproject.toml`, `.github/workflows/ci.yml` | ✅ ruff + mypy clean; GitHub Actions runs lint/types/tests/recall |
 | Demo gallery | `examples/` + `docs/demo.svg` | ✅ 9 Python pairs + a C example; runner pinned by tests |
-| Tests | `tests/` | ✅ 154 pass (cvc5 / pycparser tests skip if absent) |
+| Tests | `tests/` | ✅ 173 pass (cvc5 / pycparser tests skip if absent) |
 
 ## What M0 delivers
 
@@ -162,6 +163,48 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-06-25** — **Third audit round (auditing the fixes' fixes) + 2 more
+  soundness fixes.** Reasoning about the round-2 changes surfaced **2 more
+  confirmed cardinal-sin bugs**: (1) a concat *chain* (`xs+xs+xs`, length 3·bound)
+  still injected the fixed `length ≤ 2·bound` cap, excluding a length-`bound`
+  input from the query → a **false EQUIVALENT** (`check` certified `f`≡`g` though
+  they diverge at `xs=[42,42]`); (2) sequence `==` compared a `str` and a
+  `list[int]` by contents, so `s == xs` was satisfiable → a **false
+  COUNTEREXAMPLE** (Python: a str never equals a list). Root-caused the cap bug
+  properly: each `SymList` now carries its own *static max length* (`cap`, summed
+  compositionally), so `length ≤ cap` holds by construction and no in-scope input
+  is ever assumed away; pathological growth (doubling a list in a loop) *declines*
+  to UNKNOWN via a slot ceiling instead of blowing up. Pinned both (+ companions)
+  in `test_regressions.py`; ran ruff + mypy clean and 12k fuzz pairs (0 unsound).
+  Tests: 173 pass. **16 soundness bugs found & fixed total.**
+- **2026-06-25** — **Re-audit of the fixes + 6 more soundness fixes.** A second
+  adversarial pass — this time targeting the *first audit's fixes* (a fix can
+  introduce a new bug) — found **6 more confirmed soundness bugs**, each verified
+  by a repro: (1) a loop variable nested in an `if` and shadowing a param stayed
+  in scope after the loop → `return i` reverted to the stale param → false
+  EQUIVALENT; (2) a precondition that itself raises (`assume(100//x < 0)`) wasn't
+  excluded from the domain; (3) `str` silently wrapped code points for
+  `int_width < 22` → the symbolic stage now *declines* (UNKNOWN) instead of
+  certifying; (4) sequence `==` compared only `bound` slots, missing a computed
+  tail; (5) the output-length cap (`bound`) dropped in-scope inputs whose *output*
+  exceeded it → cap raised to `2*bound`; (6) the C loop-counter-escape check was
+  flow-insensitive (rejected a counter merely *read before* its loop). Introduced
+  an `_UNDEFINED` sentinel so out-of-scope reads fail closed. Fixed all, pinned
+  each in `test_regressions.py`, re-ran ruff + mypy clean and a 5000-trial fuzz
+  batch (0 unsound). Tests: 169 pass. **14 soundness bugs found & fixed total.**
+- **2026-06-25** — **Adversarial audit + soundness fixes.** A multi-agent audit
+  (7 dimensions, each finding empirically verified by a repro) found **8 confirmed
+  soundness bugs the ~14.5k-pair fuzzer had missed** — all in corners the fuzzer
+  didn't generate: (1) `str` inputs constrained to ASCII → false EQUIVALENT on
+  non-ASCII; (2) all runtime errors collapsed to one bool → difftest/symbolic
+  disagreed when both raised different exception types; (3) `for x in xs+[1]`
+  (computed sequence > bound) → symbolic truncated → false COUNTEREXAMPLE;
+  (4) loop variable popped after the loop → fabricated NameError; (5) candidate-
+  side `assume()` narrowed the domain → hid a divergence; (6) C loop-counter
+  escape value mis-modeled; plus C octal-literal crash and `int f(void)` rejected.
+  Fixed all, pinned each in `test_regressions.py`, extended `fuzz.py` to cover the
+  missed areas (5000-trial post-fix batch clean), and corrected stale docs. Tests:
+  163 pass.
 - **2026-06-25** — **Stress test + polish.** Added a self-validating fuzzer
   (`benchmarks/fuzz.py`): random expression/loop pairs whose verdicts are
   independently re-checked against the concrete interpreter. Ran ~4,900 pairs +
