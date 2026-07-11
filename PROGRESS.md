@@ -30,10 +30,11 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Bounded `str` | `ir.py` / `difftest.py` / `symbolic.py` / `solver.py` | ✅ `SymList` `kind="char"`; literals, `len`, `==`, `+`, index, iteration |
 | C front end | `src/congruent/cfront.py` | ✅ pycparser → IR; truncating `/`/`%`; CLI dispatches `.c` |
 | Self-validating fuzzer | `benchmarks/fuzz.py` | ✅ random pairs (ints, loops, lists, strings) re-checked vs. concrete interp; CI guard |
-| Adversarial audit | (multi-agent) | ✅ three rounds → **16 soundness bugs** the fuzzer missed, all fixed + pinned in `test_regressions.py` |
+| Adversarial audit | (multi-agent) | ✅ three rounds + real-Python oracle → **17 soundness bugs** the fuzzer missed, all fixed + pinned in `test_regressions.py` |
 | Lint / types / CI | `pyproject.toml`, `.github/workflows/ci.yml` | ✅ ruff + mypy clean; GitHub Actions runs lint/types/tests/recall |
 | Demo gallery | `examples/` + `docs/demo.svg` | ✅ 9 Python pairs + a C example; runner pinned by tests |
-| Tests | `tests/` | ✅ 173 pass (cvc5 / pycparser tests skip if absent) |
+| Real-Python oracle | `benchmarks/realpy_fuzz.py` | ✅ unparses IR→Python, diffs vs interpreter — catches bugs both stages share (found negative-indexing) |
+| Tests | `tests/` | ✅ 176 pass (cvc5 / pycparser tests skip if absent) |
 
 ## What M0 delivers
 
@@ -163,6 +164,22 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-06-25** — **Real-Python differential oracle + negative-indexing fix
+  (bug #17).** Every prior check (fuzzer, audits, regression harness) used the
+  concrete interpreter as ground truth — so a flaw *shared* by both stages was
+  invisible. Added an independent oracle: unparse each generated IR function to
+  real Python source, `exec` it, and diff against the interpreter (small values
+  at width 64 so nothing overflows, isolating semantics from the intended
+  wrapping). It immediately caught that **both stages modeled `xs[-1]` as
+  out-of-range**, so `return xs[-1]` was proven EQUIVALENT to a function that
+  always crashes — a **false EQUIVALENT vs real Python** (`f([5])=5`, not an
+  error). Implemented Python negative indexing (`-n ≤ i < n`, offset `i+n`) in
+  *both* stages. The main fuzzer never generated `xs[i]` at all — added an
+  indexing family (incl. negative indices); 12k pairs + 280k oracle evaluations
+  now clean. Kept the oracle as a permanent benchmark (`benchmarks/realpy_fuzz.py`
+  + `test_realpy_oracle.py`). Documented that fall-off-the-end is deliberately
+  modeled as an error (the only remaining interpreter-vs-Python divergence, and a
+  defensible one). Tests: 176 pass. **17 soundness bugs found & fixed total.**
 - **2026-06-25** — **Third audit round (auditing the fixes' fixes) + 2 more
   soundness fixes.** Reasoning about the round-2 changes surfaced **2 more
   confirmed cardinal-sin bugs**: (1) a concat *chain* (`xs+xs+xs`, length 3·bound)
