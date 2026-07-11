@@ -30,11 +30,11 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Bounded `str` | `ir.py` / `difftest.py` / `symbolic.py` / `solver.py` | ✅ `SymList` `kind="char"`; literals, `len`, `==`, `+`, index, iteration |
 | C front end | `src/congruent/cfront.py` | ✅ pycparser → IR; truncating `/`/`%`; CLI dispatches `.c` |
 | Self-validating fuzzer | `benchmarks/fuzz.py` | ✅ random pairs (ints, loops, lists, strings) re-checked vs. concrete interp; CI guard |
-| Adversarial audit | (multi-agent) | ✅ three rounds + real-Python oracle → **17 soundness bugs** the fuzzer missed, all fixed + pinned in `test_regressions.py` |
+| Adversarial audit | (multi-agent) | ✅ five rounds + real-Python oracle → **24 bugs** the fuzzer missed, all fixed + pinned in `test_regressions.py` |
 | Lint / types / CI | `pyproject.toml`, `.github/workflows/ci.yml` | ✅ ruff + mypy clean; GitHub Actions runs lint/types/tests/recall |
 | Demo gallery | `examples/` + `docs/demo.svg` | ✅ 9 Python pairs + a C example; runner pinned by tests |
 | Real-Python oracle | `benchmarks/realpy_fuzz.py` | ✅ unparses IR→Python, diffs vs interpreter — catches bugs both stages share (found negative-indexing) |
-| Tests | `tests/` | ✅ 176 pass (cvc5 / pycparser tests skip if absent) |
+| Tests | `tests/` | ✅ 187 pass (cvc5 / pycparser tests skip if absent) |
 
 ## What M0 delivers
 
@@ -164,6 +164,34 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-06-25** — **Fourth round: multi-agent adversarial audit + 3 more fixes.**
+  A 6-lens Workflow audit (type/kind confusion, sequence capacity, the `_UNDEFINED`
+  sentinel, errors, integer-width, freeform), each finding independently verified,
+  surfaced **3 more confirmed cardinal-sin bugs** (re-verified here against *real
+  Python*, since the audit's own oracle was the interpreter): (18) mixing a `str`
+  and a `list[int]` under `+` (`"" + [1]`, `xs + "a"`) was modeled as element
+  concatenation instead of the Python `TypeError` → **false COUNTEREXAMPLE**;
+  (19) a `-> bool` return coerced its value to a truthiness bool, so `return x + y`
+  made 88 and 89 both `True` → **false EQUIVALENT** (Python does not enforce the
+  annotation); (20) an inner loop variable *shadowing a parameter* was excluded
+  from the outer loop's merged names, so `return p` reverted to the stale param →
+  **false COUNTEREXAMPLE** (now declines to UNKNOWN). The audit also flagged
+  computed-sequence iteration (`for x in xs+xs`) as unsound, but that was a **false
+  positive** — the interpreter's `oob` marker misled it; the tool's counterexample
+  is real vs Python (one audit agent correctly rejected it). Pinned all three plus
+  a guard for the false positive. Probing those fixes then surfaced **2 crash bugs**
+  in the same type-confusion vein: (21) a `-> int` function that returns a *list*
+  crashed merging a `SymList` with a scalar default (now declines to UNKNOWN);
+  (22) `if xs:` / `not xs` crashed `_as_bool` on a sequence (now modeled as
+  non-empty truthiness, `len(xs) > 0`). Two more from continued probing:
+  (23) `s * 2` (sequence repetition) — valid Python but unmodeled — was raised as
+  an error by the interpreter, so `s*2` vs `s+s` (equal!) was a **false
+  COUNTEREXAMPLE**; now skipped as out-of-model → UNKNOWN. (24) a nested list
+  literal `[xs]` (`list[list[int]]`, outside the model) both crashed the symbolic
+  stage and was fabricated as an error by the interpreter → **false
+  COUNTEREXAMPLE**; both stages now decline. Added truthiness/indexing coverage to
+  both fuzzers. 187 tests; ~40k fresh fuzz + oracle evaluations clean.
+  **24 bugs found & fixed total** (false verdicts + crashes), all pinned.
 - **2026-06-25** — **Real-Python differential oracle + negative-indexing fix
   (bug #17).** Every prior check (fuzzer, audits, regression harness) used the
   concrete interpreter as ground truth — so a flaw *shared* by both stages was
