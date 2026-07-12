@@ -30,11 +30,11 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Bounded `str` | `ir.py` / `difftest.py` / `symbolic.py` / `solver.py` | ✅ `SymList` `kind="char"`; literals, `len`, `==`, `+`, index, iteration |
 | C front end | `src/congruent/cfront.py` | ✅ pycparser → IR; truncating `/`/`%`; CLI dispatches `.c` |
 | Self-validating fuzzer | `benchmarks/fuzz.py` | ✅ random pairs (ints, loops, lists, strings) re-checked vs. concrete interp; CI guard |
-| Adversarial audit | (multi-agent) | ✅ six rounds + real-Python oracle → **32 bugs** the fuzzer missed, all fixed + pinned in `test_regressions.py` |
+| Adversarial audit | (multi-agent) | ✅ seven rounds + real-Python oracle → **36 bugs** the fuzzer missed, all fixed + pinned in `test_regressions.py` |
 | Lint / types / CI | `pyproject.toml`, `.github/workflows/ci.yml` | ✅ ruff + mypy clean; GitHub Actions runs lint/types/tests/recall |
 | Demo gallery | `examples/` + `docs/demo.svg` | ✅ 9 Python pairs + a C example; runner pinned by tests |
 | Real-Python oracle | `benchmarks/realpy_fuzz.py` | ✅ unparses IR→Python, diffs vs interpreter — catches bugs both stages share (found negative-indexing) |
-| Tests | `tests/` | ✅ 199 pass (cvc5 / pycparser tests skip if absent) |
+| Tests | `tests/` | ✅ 204 pass (cvc5 / pycparser tests skip if absent) |
 
 ## What M0 delivers
 
@@ -191,8 +191,8 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
   round-5 `_UNDEFINED` sentinel, which reached the solver and **crashed** z3;
   `_as_bv`/`_as_bool`/`_coerce_return` now decline on it. (32) an **out-of-width
   loop-bound literal** (`range(126, 128)` at width 8) was silently wrapped by the
-  symbolic stage, mis-counting the trips → wrong verdict; it now declines to UNKNOWN
-  (and is proven normally at a width where the bound fits). Pinned all three, added
+  symbolic stage, mis-counting the trips → wrong verdict (round 7 later refined the
+  whole loop-bound scope so such a loop runs its real 2 iterations). Pinned all three, added
   `and`/`or`-value coverage to both fuzzers. 199 tests; ~28k fresh fuzz + oracle
   evaluations clean. **32 bugs found & fixed total.**
 - **2026-06-25** — **Fifth round: real-Python-grounded audit + 5 more fixes.** A
