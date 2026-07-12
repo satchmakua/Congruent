@@ -2,7 +2,7 @@
 
 Running log of where the build is and what's next. Keep this honest — it's the working memory between build sessions.
 
-**Current phase:** M0–M7 complete ✅ (incl. CVC5 cross-check, bounded strings, C front end); stress-tested + polished (fuzzer, ruff + mypy clean, CI). Only the LLM closed-loop stretch (needs API access) remains. See [ROADMAP.md](ROADMAP.md).
+**Current phase:** M0–M7 complete ✅ **plus the LLM closed-loop stretch** (`refine.py`) — the v1 product is complete. Incl. CVC5 cross-check, bounded strings, C front end; stress-tested + polished (two fuzzers, seven adversarial-audit rounds, ruff + mypy clean, CI). See [ROADMAP.md](ROADMAP.md).
 
 ## State of the tree
 
@@ -34,7 +34,8 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Lint / types / CI | `pyproject.toml`, `.github/workflows/ci.yml` | ✅ ruff + mypy clean; GitHub Actions runs lint/types/tests/recall |
 | Demo gallery | `examples/` + `docs/demo.svg` | ✅ 9 Python pairs + a C example; runner pinned by tests |
 | Real-Python oracle | `benchmarks/realpy_fuzz.py` | ✅ unparses IR→Python, diffs vs interpreter — catches bugs both stages share (found negative-indexing) |
-| Tests | `tests/` | ✅ 204 pass (cvc5 / pycparser tests skip if absent) |
+| LLM closed loop *(stretch)* | `src/congruent/refine.py` | ✅ AI proposes → Congruent verifies → counterexample feeds back until *proven* equivalent; pluggable rewriter (`AnthropicRewriter` / `ScriptedRewriter`), demo + tests offline |
+| Tests | `tests/` | ✅ 213 pass (cvc5 / pycparser / anthropic tests skip or stub if absent) |
 
 ## What M0 delivers
 
@@ -164,6 +165,18 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-06-25** — **Stretch item shipped: the LLM closed loop (`refine.py`).**
+  An LLM proposes a rewrite, Congruent verifies it, and each counterexample is fed
+  back into the prompt until the rewrite is *proven* equivalent within the bound —
+  the loop never accepts an unverified rewrite. The rewriter is pluggable via a
+  `Rewriter` protocol: `AnthropicRewriter` drives the real API (optional
+  `congruent[llm]` extra, reads `ANTHROPIC_API_KEY`), and `ScriptedRewriter` keeps
+  the loop fully offline for the demo and tests. `examples/closed_loop_demo.py`
+  shows Congruent catching a plausible-but-wrong refactor (off-by-one closed form;
+  the `(a+b)//2` midpoint overflow) and guiding the fix to a proven-equivalent
+  rewrite. 9 new tests (loop convergence, counterexample feedback, never-falsely-
+  verified, parse-error recovery, a fake-client API path). Tests: 213 pass. **The
+  v1 product — M0–M7 plus the stretch — is complete.**
 - **2026-06-25** — **Seventh round: audit of the round-6 fixes + 4 more fixes.**
   Another real-Python-grounded pass returned **8 confirmed findings, 0 false
   positives**, in 4 root causes: (33) the concrete interpreter `int()`-coerced a
