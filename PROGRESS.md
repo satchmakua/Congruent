@@ -33,7 +33,8 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Adversarial audit | (multi-agent) | ✅ seven rounds + real-Python oracle → **36 bugs** the fuzzer missed, all fixed + pinned in `test_regressions.py` |
 | Lint / types / CI | `pyproject.toml`, `.github/workflows/ci.yml` | ✅ ruff + mypy clean; GitHub Actions runs lint/types/tests/recall |
 | Demo gallery | `examples/` + `docs/demo.svg` | ✅ 10 Python pairs (incl. a ~50-line realistic-scale entry) + a C example; runner pinned by tests |
-| Real-Python oracle | `benchmarks/realpy_fuzz.py` | ✅ unparses IR→Python, diffs vs interpreter — catches bugs both stages share (found negative-indexing) |
+| Real-Python oracle | `benchmarks/realpy_fuzz.py` | ✅ unparses IR→Python, diffs vs interpreter — catches bugs both stages share (found negative-indexing); runs wide to isolate *semantics* |
+| Fixed-width wrapping oracle | `benchmarks/numpy_oracle.py` | ✅ independent numpy-C two's-complement scalars vs interpreter at small widths — validates the *wrapping* (exhaustive at 8-bit; agrees across 8/16/32/64) |
 | LLM closed loop *(stretch)* | `src/congruent/refine.py` | ✅ AI proposes → Congruent verifies → counterexample feeds back until *proven* equivalent; pluggable rewriter (`AnthropicRewriter` / `ScriptedRewriter`), demo + tests offline; **validated live** (`docs/live_run.md`) + generic driver `examples/live_rewrite.py` |
 | Tests | `tests/` | ✅ 213 pass (cvc5 / pycparser / anthropic tests skip or stub if absent) |
 
