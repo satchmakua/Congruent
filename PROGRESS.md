@@ -2,7 +2,7 @@
 
 Running log of where the build is and what's next. Keep this honest — it's the working memory between build sessions.
 
-**Current phase:** M0–M7 complete ✅ **plus the LLM closed-loop stretch** (`refine.py`) — the v1 product is complete. Incl. CVC5 cross-check, bounded strings, C front end; stress-tested + polished (two fuzzers, seven adversarial-audit rounds, ruff + mypy clean, CI). See [ROADMAP.md](ROADMAP.md).
+**Current phase:** M0–M7 complete ✅ **plus the LLM closed-loop stretch** (`refine.py`) — the v1 product is complete **and validated live** (real model caught proposing the midpoint overflow, realistic-scale rewrite proven — `docs/live_run.md`). Incl. CVC5 cross-check, bounded strings, C front end; stress-tested + polished (two fuzzers, seven adversarial-audit rounds, ruff + mypy clean, CI). See [ROADMAP.md](ROADMAP.md).
 
 ## State of the tree
 
@@ -32,9 +32,9 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Self-validating fuzzer | `benchmarks/fuzz.py` | ✅ random pairs (ints, loops, lists, strings) re-checked vs. concrete interp; CI guard |
 | Adversarial audit | (multi-agent) | ✅ seven rounds + real-Python oracle → **36 bugs** the fuzzer missed, all fixed + pinned in `test_regressions.py` |
 | Lint / types / CI | `pyproject.toml`, `.github/workflows/ci.yml` | ✅ ruff + mypy clean; GitHub Actions runs lint/types/tests/recall |
-| Demo gallery | `examples/` + `docs/demo.svg` | ✅ 9 Python pairs + a C example; runner pinned by tests |
+| Demo gallery | `examples/` + `docs/demo.svg` | ✅ 10 Python pairs (incl. a ~50-line realistic-scale entry) + a C example; runner pinned by tests |
 | Real-Python oracle | `benchmarks/realpy_fuzz.py` | ✅ unparses IR→Python, diffs vs interpreter — catches bugs both stages share (found negative-indexing) |
-| LLM closed loop *(stretch)* | `src/congruent/refine.py` | ✅ AI proposes → Congruent verifies → counterexample feeds back until *proven* equivalent; pluggable rewriter (`AnthropicRewriter` / `ScriptedRewriter`), demo + tests offline |
+| LLM closed loop *(stretch)* | `src/congruent/refine.py` | ✅ AI proposes → Congruent verifies → counterexample feeds back until *proven* equivalent; pluggable rewriter (`AnthropicRewriter` / `ScriptedRewriter`), demo + tests offline; **validated live** (`docs/live_run.md`) + generic driver `examples/live_rewrite.py` |
 | Tests | `tests/` | ✅ 213 pass (cvc5 / pycparser / anthropic tests skip or stub if absent) |
 
 ## What M0 delivers
@@ -165,6 +165,27 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-07-13** — **Reality contact: live runs, realistic scale, the measured
+  scaling edge.** Acting on an external critique of the portfolio: (1) Ran the
+  closed loop **live** — a real model (`claude-opus-4-8`) proposed the classic
+  `(a+b)//2` midpoint overflow, was handed the exact failing input, and returned
+  the proven-safe form; unedited transcripts in `docs/live_run.md`. Live-mode
+  narration no longer reuses the scripted story (it narrated attempts a live
+  model doesn't make); `DEFAULT_MODEL` and a public `AnthropicRewriter.model`
+  added. (2) New `examples/live_rewrite.py` points the live loop at any
+  `file.py:function`; used it on a new realistic-scale gallery entry,
+  `examples/water_bill.py` — a ~50-line tiered-billing routine whose committed
+  candidate is the live model's own rewrite, accepted only after proof (2
+  rounds, 8.2s wall). The first live session exposed a real product gap: on
+  UNKNOWN the loop said only "inconclusive" while the verdict knew the reason,
+  so the model re-proposed the same unprovable form for 4 rounds (correctly
+  never accepted). `_feedback` now relays the verifier's reason — pinned by
+  `test_unknown_feedback_relays_the_verifiers_reason`. (3) Fixed the Windows
+  cp1252 console crash (`UnicodeEncodeError` on `→`/`✓`) in the demo and gallery
+  runners via stdout/stderr UTF-8 reconfigure. (4) Measured the scaling edge to
+  bound 1024 and documented the honest envelope in `benchmarks/README.md`:
+  interactive ≤32, sub-second ≤128, ~6×/doubling past 256, 102s worst case at
+  1024. Tests: 214 pass.
 - **2026-06-25** — **Stretch item shipped: the LLM closed loop (`refine.py`).**
   An LLM proposes a rewrite, Congruent verifies it, and each counterexample is fed
   back into the prompt until the rewrite is *proven* equivalent within the bound —
