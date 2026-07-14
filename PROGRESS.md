@@ -14,7 +14,7 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Fixed-width concrete interpreter | `src/congruent/difftest.py` | ✅ done (two's-complement, catches overflow) |
 | Differential tester | `src/congruent/difftest.py` | ✅ done (boundary + random generation) |
 | Symbolic interpreter → Z3 | `src/congruent/symbolic.py` | ✅ path-merge, bitvectors, floor //, **loop unrolling** |
-| Z3 query + model decode | `src/congruent/solver.py` | ✅ UNSAT/SAT/unknown → Verdict; in-bound assumptions |
+| Z3 query + model decode | `src/congruent/solver.py` | ✅ UNSAT/SAT/unknown → Verdict; in-bound assumptions; `timeout_ms` so a hard query (nonlinear bitvector multiply) is UNKNOWN, never a hang |
 | Bounded loops (`for range`) | `ir.py` / `difftest.py` / `symbolic.py` | ✅ parse + capped concrete eval + symbolic unroll |
 | Input preconditions (`assume`) | `ir.py` / `difftest.py` / `symbolic.py` | ✅ filters difftest + constrains solver; CLI `--assume` |
 | `list[int]` arrays | `ir.py` / `difftest.py` / `symbolic.py` | ✅ bounded arrays, `len`, `for x in xs`, `xs[i]` (proven) |
@@ -32,7 +32,7 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Self-validating fuzzer | `benchmarks/fuzz.py` | ✅ random pairs (ints, loops, lists, strings) re-checked vs. concrete interp; CI guard |
 | Adversarial audit | (multi-agent) | ✅ seven rounds + real-Python oracle → **36 bugs** the fuzzer missed, all fixed + pinned in `test_regressions.py` |
 | Lint / types / CI | `pyproject.toml`, `.github/workflows/ci.yml` | ✅ ruff + mypy clean; GitHub Actions runs lint/types/tests/recall |
-| Demo gallery | `examples/` + `docs/demo.svg` | ✅ 10 Python pairs (incl. a ~50-line realistic-scale entry) + a C example; runner pinned by tests |
+| Demo gallery | `examples/` + `docs/demo.svg` | ✅ 11 Python pairs (incl. a ~50-line realistic-scale entry + a real-codebase `numpy.polyval` entry, both live-model rewrites) + a C example; per-example bound/width + capped; runner pinned by tests |
 | Real-Python oracle | `benchmarks/realpy_fuzz.py` | ✅ unparses IR→Python, diffs vs interpreter — catches bugs both stages share (found negative-indexing); runs wide to isolate *semantics* |
 | Fixed-width wrapping oracle | `benchmarks/numpy_oracle.py` | ✅ independent numpy-C two's-complement scalars vs interpreter at small widths — validates the *wrapping* (exhaustive at 8-bit; agrees across 8/16/32/64) |
 | LLM closed loop *(stretch)* | `src/congruent/refine.py` | ✅ AI proposes → Congruent verifies → counterexample feeds back until *proven* equivalent; pluggable rewriter (`AnthropicRewriter` / `ScriptedRewriter`), demo + tests offline; **validated live** (`docs/live_run.md`) + generic driver `examples/live_rewrite.py` |
@@ -166,6 +166,28 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
 
 ## Changelog
 
+- **2026-07-14** — **Independent wrapping oracle, a real-codebase entry, and a
+  solver-timeout fix the entry surfaced.** Closing the last two gaps from the
+  external critique. (1) **numpy wrapping oracle** (`benchmarks/numpy_oracle.py`,
+  `tests/test_numpy_oracle.py`): the two's-complement wrapping — previously
+  validated only by construction — is now checked against numpy's C fixed-width
+  scalars, an engine that shares no code with our masking. Exhaustive over every
+  8-bit operand pair (incl. INT_MIN//-1, overflow edges), and agrees across
+  8/16/32/64-bit on boundary-biased fuzzing (~9% of cases actually wrap). Added
+  the `oracle` extra (numpy). (2) **Real-codebase gallery entry**
+  (`examples/polyval.py`): the scalar-int reduction of `numpy.polyval`'s Horner
+  loop; a live model seed-optimized it (correctly adding the empty-list guard)
+  and Congruent proved it EQUIVALENT — transcript in `docs/live_run.md`. (3) That
+  entry exposed a real bug: `check()` had **no solver timeout**, so polyval's
+  symbolic-coefficient polynomial (nonlinear bitvector multiply) made Z3 spin
+  *forever* at 32-bit. Added `timeout_ms` threaded through `check` → `solver`
+  (and `refine`/`live_rewrite`/gallery), so a hard query degrades to honest
+  UNKNOWN, never a hang — pinned by `test_hard_query_times_out_to_unknown_not_a_hang`.
+  The gallery now honors per-example `BOUND`/`INT_WIDTH` (polyval proves at
+  8-bit/bound-2 in 0.8s; higher is intractable — documented in
+  `benchmarks/README.md`). Also added `AnthropicRewriter` `timeout`/`max_retries`
+  (the SDK's 10-min default hung the demo) and a `live_rewrite` extraction test.
+  Tests: 220 pass, ruff + mypy clean.
 - **2026-07-13** — **Reality contact: live runs, realistic scale, the measured
   scaling edge.** Acting on an external critique of the portfolio: (1) Ran the
   closed loop **live** — a real model (`claude-opus-4-8`) proposed the classic
