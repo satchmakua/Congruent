@@ -214,7 +214,7 @@ From the foundational doc §8. Recommendations noted; nothing is locked.
   back into the prompt until the rewrite is *proven* equivalent within the bound —
   the loop never accepts an unverified rewrite. The rewriter is pluggable via a
   `Rewriter` protocol: `AnthropicRewriter` drives the real API (optional
-  `congruent[llm]` extra, reads `ANTHROPIC_API_KEY`), and `ScriptedRewriter` keeps
+  `congruent-eq[llm]` extra, reads `ANTHROPIC_API_KEY`), and `ScriptedRewriter` keeps
   the loop fully offline for the demo and tests. `examples/closed_loop_demo.py`
   shows Congruent catching a plausible-but-wrong refactor (off-by-one closed form;
   the `(a+b)//2` midpoint overflow) and guiding the fix to a proven-equivalent
