@@ -2,7 +2,7 @@
 
 Running log of where the build is and what's next. Keep this honest — it's the working memory between build sessions.
 
-**Current phase:** M0–M7 complete ✅ **plus the LLM closed-loop stretch** (`refine.py`) — the v1 product is complete **and validated live** (real model caught proposing the midpoint overflow, realistic-scale rewrite proven — `docs/live_run.md`). Incl. CVC5 cross-check, bounded strings, C front end; stress-tested + polished (two fuzzers, seven adversarial-audit rounds, ruff + mypy clean, CI). See [ROADMAP.md](ROADMAP.md).
+**Current phase:** M0–M7 complete ✅ **plus the LLM closed-loop stretch** (`refine.py`) — the v1 product is complete **and validated live** (real model caught proposing the midpoint overflow, realistic-scale rewrite proven — `docs/live_run.md`). Incl. CVC5 cross-check, bounded strings, C front end; stress-tested + polished (a fuzzer + two independent oracles, seven adversarial-audit rounds, ruff + mypy clean, CI). See [ROADMAP.md](ROADMAP.md).
 
 ## State of the tree
 
@@ -19,7 +19,7 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Input preconditions (`assume`) | `ir.py` / `difftest.py` / `symbolic.py` | ✅ filters difftest + constrains solver; CLI `--assume` |
 | `list[int]` arrays | `ir.py` / `difftest.py` / `symbolic.py` | ✅ bounded arrays, `len`, `for x in xs`, `xs[i]` (proven) |
 | Runtime-error modeling | `src/congruent/symbolic.py` | ✅ OOB access + divide-by-zero as guarded errors (path-condition aware) |
-| CLI | `src/congruent/cli.py` | ✅ parse → check → report, `--assume`, exit codes 0/1/2 |
+| CLI | `src/congruent/cli.py` | ✅ parse → check → report, `--assume`, `--timeout` (no hang on intractable queries), exit codes 0/1/2 |
 | Verdict formatting | `src/congruent/report.py` | ✅ done (all four statuses) |
 | Fixtures (eval set) | `tests/fixtures/` | ✅ 16 pairs (ints, loops, preconditions, arrays, indexing, early-exit, list outputs, strings) |
 | Benchmarks | `benchmarks/` | ✅ recall (zero-unsound gate) + timing-vs-bound |
@@ -36,7 +36,7 @@ Running log of where the build is and what's next. Keep this honest — it's the
 | Real-Python oracle | `benchmarks/realpy_fuzz.py` | ✅ unparses IR→Python, diffs vs interpreter — catches bugs both stages share (found negative-indexing); runs wide to isolate *semantics* |
 | Fixed-width wrapping oracle | `benchmarks/numpy_oracle.py` | ✅ independent numpy-C two's-complement scalars vs interpreter at small widths — validates the *wrapping* (exhaustive at 8-bit; agrees across 8/16/32/64) |
 | LLM closed loop *(stretch)* | `src/congruent/refine.py` | ✅ AI proposes → Congruent verifies → counterexample feeds back until *proven* equivalent; pluggable rewriter (`AnthropicRewriter` / `ScriptedRewriter`), demo + tests offline; **validated live** (`docs/live_run.md`) + generic driver `examples/live_rewrite.py` |
-| Tests | `tests/` | ✅ 213 pass (cvc5 / pycparser / anthropic tests skip or stub if absent) |
+| Tests | `tests/` | ✅ 229 pass (cvc5 / pycparser / numpy / anthropic tests skip or stub if absent) |
 
 ## What M0 delivers
 
@@ -139,33 +139,85 @@ The precondition machinery is demonstrated by identity-vs-abs instead.
 
 - `benchmarks/bench_recall.py` — runs `check` over all fixtures, tabulates
   verdict vs. `EXPECTED`, and exits non-zero on any unsound verdict (false
-  EQUIVALENT / false COUNTEREXAMPLE). Currently 11/11 match, 0 unsound.
+  EQUIVALENT / false COUNTEREXAMPLE). Currently 16/16 match, 0 unsound.
 - `benchmarks/bench_scaling.py` — solver time vs. `--bound` on the loop/array
   fixtures (sub-100ms through bound 32).
 - `tests/test_benchmarks.py` locks the "no unsound verdicts / fully decided"
   invariant into the suite.
 
-## Next actions (options)
+## Next actions
 
-- **Finish M3**: a README demo image of the midpoint-overflow catch; a curated
-  gallery of real AI-refactor pairs beyond the unit fixtures.
-- **Language coverage**: `return`/`break`/`continue` inside loops (thread an
-  "already-returned" guard through unrolling); list *outputs* (functions that
-  build and return a list); bounded strings.
-- **M4 stretch**: counterexample minimization; a C-subset front end; pluggable
-  CVC5 backend behind the solver interface.
+**None outstanding for v1 — the backlog is empty.** Everything previously listed
+here shipped: the README demo image + curated gallery (M3), `return`/`break`/
+`continue` in loops (M4/M7), list outputs (M6), bounded strings (M7),
+counterexample minimization (M5), the C front end and the CVC5 backend (M7), and
+the LLM closed loop (stretch) — since validated against a live model
+(`docs/live_run.md`).
 
-## Open design decisions (resolve before/while building the symbolic core)
+Anything further is the deliberate **out-of-scope** list in
+[ROADMAP.md](ROADMAP.md#out-of-scope-for-v1--future-work) (recursion, floats,
+side effects, concurrency, heap aliasing, full Python semantics). Those are not a
+backlog: refusing them is what makes a `EQUIVALENT` verdict here worth believing.
+The one honest *internal* limit worth revisiting is the nonlinear-multiply wall
+(symbolic-coefficient polynomials return UNKNOWN — see `benchmarks/README.md`);
+that is a solver-capability ceiling, not unfinished work.
 
-From the foundational doc §8. Recommendations noted; nothing is locked.
+## Open design decisions — all resolved
+
+From the foundational doc §8; kept as a record of what was decided and why.
 
 1. **Symbolic layer: build-from-scratch vs. existing tools.** ✅ **Resolved: built from scratch** — a mini symbolic interpreter (`symbolic.py`) over the IR subset, emitting Z3 directly. Owns the "from scratch" signal.
 2. **Python subset grammar.** *(M0: settled for straight-line/branching code.)* Implemented: `def` (annotated positional params), `return`, name/aug assignment, `if/elif/else`, conditional expressions, int/bool arithmetic (`+ - * // %`, unary `-`), comparisons (incl. chained), `and/or/not`. Loops + arrays deferred to M2. Everything else → `UnsupportedConstruct`.
 3. **Integer model.** ✅ **Resolved: fixed-width bitvectors** (catches overflow — the killer demo). M0's concrete interpreter wraps to `--int-width` two's-complement; M1's Z3 model must match.
-4. **Counterexample decoding + minimization.** Decode Z3 model → concrete inputs for M1; minimization (shrink to smallest failing input) deferred to M4.
+4. **Counterexample decoding + minimization.** ✅ **Resolved: both shipped** — Z3 model → concrete inputs in M1; minimization (originally slated for M4) landed in **M5** as an incremental solver shrink in `solver.py` (list length, then scalars→0), with `--no-minimize` to skip it.
 
 ## Changelog
 
+- **2026-07-14** — **Final polish pass (v1 backlog empty).** M0–M7 + the stretch
+  all shipped and the external critique fully addressed, so: a consistency sweep
+  over the finished repo, plus a 4-lens adversarial audit (43 agents; 36 findings
+  confirmed, 3 rejected). **Four real bugs, all user-facing:**
+  1. **The CLI could hang forever.** `cli.py` never passed `timeout_ms`, so
+     `congruent` on an intractable query (32-bit polyval) spun indefinitely — the
+     failure the library fix had closed everywhere *except* the primary
+     interface. Added `--timeout SECONDS` (default 300, `0` = no limit): now
+     `UNKNOWN … solver returned unknown: timeout` in 5s, exit 2.
+  2. **The CLI crashed on a legacy Windows console.** A string counterexample
+     decodes to arbitrary code points (`solver._decode_seq` → `chr(e)`), which
+     cp1252 cannot encode → `UnicodeEncodeError`. Same class as the demo crash
+     the critique caught, still shipping. `main()` now reconfigures stdout/stderr
+     to UTF-8 (verified: `cp1252 → utf-8`, a CJK verdict prints).
+  3. **The C front end accepted `break`/`continue` outside a loop** — the Python
+     front end always rejected them; C silently produced an IR the two stages
+     model inconsistently. `cfront` now calls `ir._check_loop_control`; pinned by
+     three tests.
+  4. **The real-Python oracle was partly blind.** It still tolerated "real
+     returns `None`, Congruent raises" as a *documented design choice* — a design
+     that changed. The clause was dead (verified: 0 mismatches at 3 seeds after
+     removal) and silently disabled detection of the exact bug class the oracle
+     exists for. Removed, with its two inverted docstrings.
+
+  **Honesty fix:** an EQUIVALENT verdict always printed "equivalent up to bound
+  N", even when the pair is loop-free and decided over the *whole* input space —
+  underselling a complete proof and contradicting its own note two lines below.
+  `Verdict.complete` now carries the fact (derived in `_scope_note`, not
+  string-sniffed) and complete results say "equivalent (complete — no bound
+  needed)".
+
+  **Coverage:** the CLI had *no tests at all* despite its exit codes being a
+  documented interface — added `tests/test_cli.py` (exit 0/1/2, the timeout
+  anti-hang, the cp1252 crash, `--assume` reporting, missing-file).
+  **Dead code:** removed `backends.available()` (zero callers), a dead
+  `boundary_params` in `numpy_oracle`, and unused params in `solver._differ` /
+  the decode chain / `symbolic._append`/`_concat`; `run_gallery.main` no longer
+  duplicates `evaluate`'s loop. **Docs:** fixed contradictions (ROADMAP M4 said
+  `break`/`continue` were "still rejected", M7 shipped them; fixtures/README said
+  preconditions were inexpressible and `sum_to_n` absent while listing it 10
+  lines later; `equiv.check`'s docstring still claimed the symbolic stage didn't
+  exist), corrected stale counts (154→229 tests, 213→229, 11/11 and 10/10→16/16,
+  "~4,900 pairs"→a re-measured figure), routed optional deps through the declared
+  extras, documented the `oracle` extra, and added `UNKNOWN` to the README
+  headline (it framed a strict binary). Tests: 229 pass, ruff + mypy clean.
 - **2026-07-14** — **Independent wrapping oracle, a real-codebase entry, and a
   solver-timeout fix the entry surfaced.** Closing the last two gaps from the
   external critique. (1) **numpy wrapping oracle** (`benchmarks/numpy_oracle.py`,
